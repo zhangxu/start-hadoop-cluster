@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+script_dir=$(dirname $(readlink -e $BASH_SOURCE))
+image="hadoop:2.7.3"
+network=hdfs
+
+touch "${script_dir}/workers"
+
+find_or_create_network() {
+    find=$( docker network ls -f "name=${network}" -q )
+    if [[ "$find" == "" ]]; then
+        docker network create $network
+    fi
+}
+
+cmd="/opt/hadoop/bin/hdfs namenode -format && /opt/hadoop/bin/hdfs namenode"
+
+#Start name node
+docker run -d -p 9000 \
+       -v "${script_dir}/hdfs/NameNode/hadoop-env.sh":/opt/hadoop/etc/hadoop/hadoop-env.sh \
+       -v "${script_dir}/hdfs/NameNode/core-site.xml":/opt/hadoop/etc/hadoop/core-site.xml \
+       -v "${script_dir}/hdfs/NameNode/hdfs-site.xml":/opt/hadoop/etc/hadoop/hdfs-site.xml \
+       -v "${script_dir}/workers":/opt/hadoop/etc/hadoop/workers \
+       --network $network \
+       --label "hdfs-namenode=yes" \
+       --name hdfs-namenode \
+       ${image} \
+       /opt/hadoop/sbin/start-dfs.sh
+
+############################################################################################
+docker run -it --rm -p 9000 -p 50070 \
+       -v "${script_dir}/hdfs/NameNode/hadoop-env.sh":/opt/hadoop/etc/hadoop/hadoop-env.sh \
+       -v "${script_dir}/hdfs/NameNode/core-site.xml":/opt/hadoop/etc/hadoop/core-site.xml \
+       -v "${script_dir}/hdfs/NameNode/hdfs-site.xml":/opt/hadoop/etc/hadoop/hdfs-site.xml \
+       -v "${script_dir}/workers":/opt/hadoop/etc/hadoop/workers \
+       --network $network \
+       `printenv |grep -i proxy|awk '{print "-e " $0}'` \
+       --label "hdfs-namenode=yes" \
+       --name hdfs-namenode \
+       ${image}
+
+docker run -it --rm \
+       -v "${script_dir}/hdfs/DataNode/hadoop-env.sh":/opt/hadoop/etc/hadoop/hadoop-env.sh \
+       -v "${script_dir}/hdfs/DataNode/core-site.xml":/opt/hadoop/etc/hadoop/core-site.xml \
+       -v "${script_dir}/hdfs/DataNode/hdfs-site.xml":/opt/hadoop/etc/hadoop/hdfs-site.xml \
+       --network $network \
+       `printenv |grep -i proxy|awk '{print "-e " $0}'` \
+       --label "hdfs-datanode=yes" \
+       --name hdfs-datanode-1 \
+       ${image}

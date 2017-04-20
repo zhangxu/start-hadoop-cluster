@@ -1,3 +1,4 @@
 zoo.cfg
 myid.*
 *.tar.gz
+workers

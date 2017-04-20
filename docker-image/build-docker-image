@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+
+docker build --rm -t hadoop:2.7.3 `printenv |grep -i proxy|awk '{print "--build-arg " $0}'` .
