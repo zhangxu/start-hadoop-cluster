@@ -4,8 +4,6 @@ script_dir=$(dirname $(readlink -e $BASH_SOURCE))
 image="hadoop:2.7.3"
 network=hdfs
 
-touch "${script_dir}/workers"
-
 find_or_create_network() {
     find=$( docker network ls -f "name=${network}" -q )
     if [[ "$find" == "" ]]; then
@@ -13,22 +11,18 @@ find_or_create_network() {
     fi
 }
 
-cmd="/opt/hadoop/bin/hdfs namenode -format && /opt/hadoop/bin/hdfs namenode"
+start_namenode() {
+  name=hdfs-namenode
+  count=`docker ps -aq --filter "name=${name}"|wc -l`
+  if [[ $count -ne 0 ]]; then
+    return 1
+  fi
 
-#Start name node
-docker run -d -p 9000 \
-       -v "${script_dir}/hdfs/NameNode/hadoop-env.sh":/opt/hadoop/etc/hadoop/hadoop-env.sh \
-       -v "${script_dir}/hdfs/NameNode/core-site.xml":/opt/hadoop/etc/hadoop/core-site.xml \
-       -v "${script_dir}/hdfs/NameNode/hdfs-site.xml":/opt/hadoop/etc/hadoop/hdfs-site.xml \
-       -v "${script_dir}/workers":/opt/hadoop/etc/hadoop/workers \
-       --network $network \
-       --label "hdfs-namenode=yes" \
-       --name hdfs-namenode \
-       ${image} \
-       /opt/hadoop/sbin/start-dfs.sh
+  echo -n > "${script_dir}/workers"
 
-############################################################################################
-docker run -it --rm -p 9000 -p 50070 \
+  namenode_cmd="/opt/hadoop/bin/hdfs namenode -format && /opt/hadoop/bin/hdfs namenode"
+
+  docker run -t -d -p 9000 -p 50070 \
        -v "${script_dir}/hdfs/NameNode/hadoop-env.sh":/opt/hadoop/etc/hadoop/hadoop-env.sh \
        -v "${script_dir}/hdfs/NameNode/core-site.xml":/opt/hadoop/etc/hadoop/core-site.xml \
        -v "${script_dir}/hdfs/NameNode/hdfs-site.xml":/opt/hadoop/etc/hadoop/hdfs-site.xml \
@@ -36,15 +30,35 @@ docker run -it --rm -p 9000 -p 50070 \
        --network $network \
        `printenv |grep -i proxy|awk '{print "-e " $0}'` \
        --label "hdfs-namenode=yes" \
-       --name hdfs-namenode \
-       ${image}
+       --name $name \
+       ${image} \
+       -c "${namenode_cmd}"
+}
 
-docker run -it --rm \
+start_datanodes() {
+  datanode_cmd="/opt/hadoop/bin/hdfs datanode"
+
+  for i in $(seq 1 $1); do
+    name=hdfs-datanode-${i}
+
+    echo $name >> "${script_dir}/workers"
+
+    docker run -d \
        -v "${script_dir}/hdfs/DataNode/hadoop-env.sh":/opt/hadoop/etc/hadoop/hadoop-env.sh \
        -v "${script_dir}/hdfs/DataNode/core-site.xml":/opt/hadoop/etc/hadoop/core-site.xml \
        -v "${script_dir}/hdfs/DataNode/hdfs-site.xml":/opt/hadoop/etc/hadoop/hdfs-site.xml \
        --network $network \
        `printenv |grep -i proxy|awk '{print "-e " $0}'` \
        --label "hdfs-datanode=yes" \
-       --name hdfs-datanode-1 \
-       ${image}
+       --name ${name} \
+       ${image} \
+       -c "${datanode_cmd}"
+  done
+}
+
+find_or_create_network 
+
+start_namenode
+
+start_datanodes ${1:-3}
+
